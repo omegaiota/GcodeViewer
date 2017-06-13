@@ -21,8 +21,9 @@ import java.util.logging.Logger;
 // Java 8 code
 public class gcodePlotter extends Application {
     private Desktop desktop = Desktop.getDesktop();
-    private FileProcesser gcodeFile;
-    private List<ParsedCommand> commandList = new ArrayList<>();
+    private gcodePatFileProcesser gcodeFile;
+    private gcodeSvgFileProcesser svgFile;
+    private List<ParsedGcodeCommand> commandList = new ArrayList<>();
     private Stage thisStage;
     private Axes axes = new Axes(
             600, 600,
@@ -30,6 +31,7 @@ public class gcodePlotter extends Application {
             -10, 10, 5
     );
     private final Button viewPatButton = new Button("View a .pat file ...");
+    private final Button viewSvgButton = new Button("View a .pat file ...");
     private final Button gcodeToPatButton = new Button("Convert a gcode file to .pat ...");
     private final Button gcodeToLinearPatButton = new Button("Convert and linearize a gcode file to .pat ...");
 
@@ -67,7 +69,7 @@ public class gcodePlotter extends Application {
                     File file = fileChooser.showOpenDialog(stage);
                     if (file != null) {
                         System.out.println("Viewing a .pat ....");
-                        gcodeFile = new FileProcesser(file.getPath(), file.getName());
+                        gcodeFile = new gcodePatFileProcesser(file.getPath(), file.getName());
                         try {
                             /** Process the gcode file */
                             commandList = gcodeFile.processLineByLine(false, true);
@@ -83,12 +85,35 @@ public class gcodePlotter extends Application {
                         }
                     }
                 });
+
+        viewSvgButton.setOnAction(
+                e -> {
+                    File file = fileChooser.showOpenDialog(stage);
+                    if (file != null) {
+                        System.out.println("Viewing a .pat ....");
+                        svgFile = new gcodeSvgFileProcesser(file.getPath(), file.getName());
+                        try {
+                            /** Process the gcode file */
+                            commandList = gcodeFile.processLineByLine(false, true);
+                            System.out.println("absV is rescaled to:" + gcodeFile.getAbsV());
+                            axes = new Axes(
+                                    600, 600,
+                                    -1 * gcodeFile.getAbsV(), gcodeFile.getAbsV(), 5,
+                                    -1 * gcodeFile.getAbsV(), gcodeFile.getAbsV(), 5
+                            );
+                            plotCommands();
+                        } catch (IOException e1) {
+                            e1.printStackTrace();
+                        }
+                    }
+                });
+
         gcodeToPatButton.setOnAction(
                 e -> {
                     System.out.println("Converting to .pat....");
                     File file = fileChooser.showOpenDialog(stage);
                     if (file != null) {
-                        gcodeFile = new FileProcesser(file.getPath(), file.getName());
+                        gcodeFile = new gcodePatFileProcesser(file.getPath(), file.getName());
                         try {
                             /** Process the gcode file */
                             commandList = gcodeFile.processLineByLine(false, false);
@@ -110,7 +135,7 @@ public class gcodePlotter extends Application {
                     System.out.println("Converting to a linearized .pat....");
                     File file = fileChooser.showOpenDialog(stage);
                     if (file != null) {
-                        gcodeFile = new FileProcesser(file.getPath(), file.getName());
+                        gcodeFile = new gcodePatFileProcesser(file.getPath(), file.getName());
                         try {
                             /** Process the gcode file */
                             commandList = gcodeFile.processLineByLine(true, false);
@@ -136,7 +161,7 @@ public class gcodePlotter extends Application {
         );
 
         /** Initialize the stage*/
-        stage.setTitle("y = \u00BC(x+4)(x+1)(x-2)");
+        stage.setTitle("changing title");
         thisStage = stage;
         stage.setScene(new Scene(setLayoutWithGraph(plot), Color.rgb(35, 39, 50)));
         stage.show();
@@ -159,8 +184,8 @@ public class gcodePlotter extends Application {
         Pane graphs = new StackPane();
 
         for (int i = 1; i < commandList.size(); i++) {
-            ParsedCommand currCommand = commandList.get(i);
-            ParsedCommand prevCommand = commandList.get(i - 1);
+            ParsedGcodeCommand currCommand = commandList.get(i);
+            ParsedGcodeCommand prevCommand = commandList.get(i - 1);
             double x = currCommand.getX();
             double y = currCommand.getY();
             double prevX = prevCommand.getX();
@@ -168,26 +193,20 @@ public class gcodePlotter extends Application {
             final double minX = (x < prevX) ? x : prevX;
             final double otherX = x + prevX - minX;
 
-            if (gcodeFile.isLinearizedMode() || currCommand.getCommand() == 0 || currCommand.getCommand() == 1) {
+            if (currCommand.isLineTo()) {
                 count++;
                 double k = (y - prevY) / (x - prevX);
                 Plot plot = new Plot(
                         xk -> k * (xk - prevCommand.getX()) + prevCommand.getY(),
                         minX, otherX, 0.01, axes);
                 graphs.getChildren().addAll(plot);
-            } else if (currCommand.isArc()) {
+            } else if (currCommand.isArcTo()) {
                 System.out.println("Drawing arcs");
                 double centerX = currCommand.getI();
                 double centerY = currCommand.getJ();
                 double squareX = Math.pow(centerX - prevX, 2);
                 double squareY = Math.pow(centerY - prevY, 2);
                 double R = Math.sqrt(squareX + squareY);
-
-                if (currCommand.getCommand() == 3) {
-
-                } else {
-
-                }
                 Plot plot = new Plot(
                         xk -> Math.sqrt(R * R - Math.pow(xk - centerX, 2)) + centerY,
                         minX, otherX, 0.01, axes);
